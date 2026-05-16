@@ -975,54 +975,80 @@ function renderHistory(){
 }
 
 // ============================================================
-// CARDS (Plickers style)
+// CARDS con QR reales
 // ============================================================
 function renderCards(){
   const n=parseInt(document.getElementById('cardCount').value)||30;
   const grid=document.getElementById('cardsGrid');grid.innerHTML='';
-  for(let i=1;i<=n;i++){
-    const wrap=document.createElement('div');wrap.className='p-card';
-    const num=document.createElement('div');num.className='p-card-num';num.textContent='Alumno #'+i;
-    wrap.appendChild(num);
-    const cv=document.createElement('canvas');cv.width=160;cv.height=160;
-    wrap.appendChild(cv);grid.appendChild(wrap);drawPlickersCard(cv,i);
+  // Load QR library then draw
+  if(!window.QRCode){
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+    s.onload=()=>drawAllCards(n);
+    document.head.appendChild(s);
+  } else {
+    drawAllCards(n);
   }
 }
-function drawPlickersCard(canvas,id){
-  const ctx=canvas.getContext('2d'),SZ=160,M=18;
-  ctx.fillStyle='white';ctx.fillRect(0,0,SZ,SZ);
-  ctx.fillStyle='black';ctx.font='bold 13px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
-  ctx.fillText('A',SZ/2,9);ctx.fillText('B',SZ-9,SZ/2);ctx.fillText('C',SZ/2,SZ-9);ctx.fillText('D',9,SZ/2);
-  drawArrow(ctx,SZ/2,17,SZ/2,23);drawArrow(ctx,SZ-17,SZ/2,SZ-23,SZ/2);
-  drawArrow(ctx,SZ/2,SZ-17,SZ/2,SZ-23);drawArrow(ctx,17,SZ/2,23,SZ/2);
-  ctx.strokeStyle='black';ctx.lineWidth=2;ctx.strokeRect(M,M,SZ-M*2,SZ-M*2);
-  const go=M+3,gsz=SZ-go*2,cells=6,csz=gsz/cells;
-  const bits=genBits(id,cells*cells);
-  for(let r=0;r<cells;r++)for(let c=0;c<cells;c++){
-    const border=r===0||r===cells-1||c===0||c===cells-1;
-    ctx.fillStyle=(border||bits[r*cells+c])?'black':'white';
-    ctx.fillRect(go+c*csz,go+r*csz,csz,csz);
-  }
-  const csz2=csz*1.6;
-  ctx.fillStyle='white';ctx.fillRect(go,go,csz2,csz2);
-  ctx.fillStyle='black';ctx.beginPath();ctx.arc(go+csz2/2,go+csz2/2,csz2*.28,0,Math.PI*2);ctx.fill();
+
+function drawAllCards(n){
+  const grid=document.getElementById('cardsGrid');grid.innerHTML='';
+  for(let i=1;i<=n;i++) drawCard(grid,i);
 }
-function drawArrow(ctx,x1,y1,x2,y2){
-  ctx.strokeStyle='black';ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
-  const a=Math.atan2(y2-y1,x2-x1),hs=4;
-  ctx.beginPath();ctx.moveTo(x2,y2);
-  ctx.lineTo(x2-hs*Math.cos(a-Math.PI/6),y2-hs*Math.sin(a-Math.PI/6));
-  ctx.lineTo(x2-hs*Math.cos(a+Math.PI/6),y2-hs*Math.sin(a+Math.PI/6));
-  ctx.closePath();ctx.fillStyle='black';ctx.fill();
-}
-function genBits(id,count){
-  const bits=[];let seed=(id*2654435761)>>>0;
-  for(let i=0;i<count;i++){
-    seed=((seed^(seed>>>16))*2246822519)>>>0;
-    seed=((seed^(seed>>>13))*3266489917)>>>0;
-    seed=(seed^(seed>>>16))>>>0;bits.push(seed%2);
-  }
-  return bits;
+
+function drawCard(grid,id){
+  const colors={A:'#4299e1',B:'#48bb78',C:'#e53e3e',D:'#ed8936'};
+  const wrap=document.createElement('div');
+  wrap.className='p-card';
+  wrap.style.cssText='padding:10px;page-break-inside:avoid';
+
+  // Alumno number
+  const num=document.createElement('div');
+  num.style.cssText='font-size:.82rem;font-weight:800;text-align:center;margin-bottom:8px;color:#1a202c';
+  num.textContent='Alumno #'+id;
+  wrap.appendChild(num);
+
+  // 2x2 grid of QR codes
+  const qrGrid=document.createElement('div');
+  qrGrid.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:6px';
+
+  ['A','B','C','D'].forEach(ans=>{
+    const cell=document.createElement('div');
+    cell.style.cssText='text-align:center';
+
+    // Label
+    const lbl=document.createElement('div');
+    lbl.style.cssText=`font-size:.75rem;font-weight:800;color:white;background:${colors[ans]};border-radius:4px;padding:2px 0;margin-bottom:3px`;
+    lbl.textContent=ans;
+    cell.appendChild(lbl);
+
+    // QR container
+    const qrDiv=document.createElement('div');
+    qrDiv.style.cssText='display:flex;justify-content:center';
+    cell.appendChild(qrDiv);
+
+    // Generate QR — data: CC:cardNumber:answer
+    try{
+      new QRCode(qrDiv,{
+        text:`CC:${id}:${ans}`,
+        width:80,height:80,
+        colorDark:'#000000',colorLight:'#ffffff',
+        correctLevel:QRCode.CorrectLevel.M
+      });
+    }catch(e){console.error('QR error',e);}
+
+    qrGrid.appendChild(cell);
+  });
+
+  wrap.appendChild(qrGrid);
+
+  // Instructions
+  const inst=document.createElement('div');
+  inst.style.cssText='font-size:.62rem;color:#718096;text-align:center;margin-top:6px;line-height:1.3';
+  inst.textContent='Acerca el QR de tu respuesta al móvil del profesor';
+  wrap.appendChild(inst);
+
+  grid.appendChild(wrap);
 }
 
 // ============================================================
