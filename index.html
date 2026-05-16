@@ -878,11 +878,24 @@ function saveResult(){
 // CAMERA
 // ============================================================
 let camActive=false;
+// ============================================================
+// CAMERA - usa BarcodeDetector nativo del navegador
+// ============================================================
+let barcodeDetector=null;
+
 async function toggleCamera(){
   if(camActive){stopCamera();return;}
   const card=document.getElementById('cameraCard');
   card.style.display='block';
   try{
+    // Check BarcodeDetector support
+    if('BarcodeDetector' in window){
+      barcodeDetector=new BarcodeDetector({formats:['qr_code']});
+      document.getElementById('camStatus').textContent='📷 Usando escáner nativo...';
+    } else {
+      document.getElementById('camStatus').textContent='📷 Cargando escáner...';
+    }
+
     S.stream=await navigator.mediaDevices.getUserMedia({
       video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}
     });
@@ -893,27 +906,51 @@ async function toggleCamera(){
     S.scanning=true;
     document.getElementById('camBtn').textContent='⏹ Parar cámara';
     document.getElementById('camBtn').className='btn btn-red';
-    document.getElementById('camStatus').textContent='Apuntando a las tarjetas…';
-    scanLoop();
+
+    if(barcodeDetector){
+      scanLoopNative();
+    } else {
+      // fallback jsQR
+      loadJsQR(()=>scanLoop());
+    }
   }catch(err){
     card.style.display='none';
     console.error(err);
     if(err.name==='NotAllowedError'){
-      alert('❌ Permiso de cámara denegado.\n\nSolución:\n1. La app debe estar en HTTPS (GitHub Pages)\n2. En el navegador, permite el acceso a la cámara cuando lo pida');
-    } else if(err.name==='NotFoundError'){
-      alert('❌ No se encontró ninguna cámara en este dispositivo.');
+      alert('❌ Permiso de cámara denegado.\nAsegúrate de estar en HTTPS y permite la cámara.');
     } else {
-      alert('❌ Error cámara: '+err.message+'\n\nAsegúrate de estar en HTTPS.');
+      alert('❌ Error: '+err.message);
     }
   }
 }
-function stopCamera(){
-  S.scanning=false;camActive=false;
-  if(S.stream){S.stream.getTracks().forEach(t=>t.stop());S.stream=null;}
-  document.getElementById('cameraCard').style.display='none';
-  document.getElementById('camBtn').textContent='📷 Activar cámara';
-  document.getElementById('camBtn').className='btn btn-green';
+
+// Native BarcodeDetector scan loop (fast!)
+async function scanLoopNative(){
+  if(!S.scanning)return;
+  const video=document.getElementById('scanVideo');
+  if(video.readyState<2){requestAnimationFrame(scanLoopNative);return;}
+  try{
+    const codes=await barcodeDetector.detect(video);
+    if(codes.length>0){
+      for(const code of codes){
+        const data=code.rawValue;
+        if(data&&data.startsWith('CC:')){
+          const p=data.split(':');
+          const num=parseInt(p[1]);const orient=p[2];
+          const cls=document.getElementById('sessClass').value;
+          const clsObj=S.classes.find(c=>c.id==cls);
+          if(clsObj&&num>=1&&num<=clsObj.students.length){
+            manualAns(num-1,orient);
+            document.getElementById('camStatus').textContent=`✅ #${num} ${clsObj.students[num-1]} → ${orient}`;
+          }
+        }
+      }
+    }
+  }catch(e){console.warn('Scan error:',e);}
+  requestAnimationFrame(scanLoopNative);
 }
+
+// jsQR fallback scan loop
 function scanLoop(){
   if(!S.scanning)return;
   const v=document.getElementById('scanVideo');
@@ -924,9 +961,7 @@ function scanLoop(){
   ctx.drawImage(v,0,0,cv.width,cv.height);
   if(window.jsQR){
     const img=ctx.getImageData(0,0,cv.width,cv.height);
-    // Try all inversion modes for better detection
     let code=jsQR(img.data,img.width,img.height,{inversionAttempts:'attemptBoth'});
-    if(!code) code=jsQR(img.data,img.width,img.height,{inversionAttempts:'invertFirst'});
     if(code&&code.data.startsWith('CC:')){
       const p=code.data.split(':');
       const num=parseInt(p[1]);const orient=p[2];
@@ -936,27 +971,21 @@ function scanLoop(){
         manualAns(num-1,orient);
         document.getElementById('camStatus').textContent=`✅ #${num} ${clsObj.students[num-1]} → ${orient}`;
       }
-      const loc=code.location;
-      ctx.strokeStyle='#68d391';ctx.lineWidth=4;ctx.beginPath();
-      ctx.moveTo(loc.topLeftCorner.x,loc.topLeftCorner.y);
-      ctx.lineTo(loc.topRightCorner.x,loc.topRightCorner.y);
-      ctx.lineTo(loc.bottomRightCorner.x,loc.bottomRightCorner.y);
-      ctx.lineTo(loc.bottomLeftCorner.x,loc.bottomLeftCorner.y);
-      ctx.closePath();ctx.stroke();
-      ctx.fillStyle='#68d391';ctx.font=`bold ${Math.max(16,cv.width/30)}px sans-serif`;
-      ctx.fillText(`#${num}→${orient}`,loc.topLeftCorner.x+4,loc.topLeftCorner.y-6);
-    } else {
-      // Show scanning indicator
-      const t=Date.now()%1000<500;
-      ctx.strokeStyle=t?'#68d391':'#4299e1';ctx.lineWidth=3;
-      const cx=cv.width/2,cy=cv.height/2,sz=120;
-      ctx.strokeRect(cx-sz,cy-sz,sz*2,sz*2);
     }
   }
   requestAnimationFrame(scanLoop);
 }
-// Load jsQR with multiple fallbacks
+
+function stopCamera(){
+  S.scanning=false;camActive=false;
+  if(S.stream){S.stream.getTracks().forEach(t=>t.stop());S.stream=null;}
+  document.getElementById('cameraCard').style.display='none';
+  document.getElementById('camBtn').textContent='📷 Activar cámara';
+  document.getElementById('camBtn').className='btn btn-green';
+}
+
 function loadJsQR(cb){
+  if(window.jsQR){if(cb)cb();return;}
   const urls=[
     'https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js',
     'https://unpkg.com/jsqr@1.4.0/dist/jsQR.js',
@@ -964,16 +993,15 @@ function loadJsQR(cb){
   ];
   let idx=0;
   function tryNext(){
-    if(idx>=urls.length){console.error('jsQR no se pudo cargar');return;}
+    if(idx>=urls.length)return;
     const sc=document.createElement('script');
     sc.src=urls[idx++];
-    sc.onload=()=>{console.log('jsQR cargado desde',sc.src);if(cb)cb();};
-    sc.onerror=()=>{console.warn('Fallo cargando jsQR desde',sc.src);tryNext();};
+    sc.onload=()=>{if(cb)cb();};
+    sc.onerror=()=>tryNext();
     document.head.appendChild(sc);
   }
   tryNext();
 }
-loadJsQR();
 
 // ============================================================
 // HISTORY
