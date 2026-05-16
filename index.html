@@ -304,12 +304,10 @@ code{background:#edf2f7;padding:2px 6px;border-radius:4px;font-size:.8rem;font-f
     <div id="sessQDisplay"></div>
   </div>
 
-  <!-- CAMERA CARD -->
   <div class="card" id="cameraCard" style="display:none">
     <div id="videoContainer">
       <video id="scanVideo" autoplay playsinline muted></video>
-      <canvas id="scanCanvas"></canvas>
-      <div id="camStatus">Apuntando a las tarjetas…</div>
+      <div id="camStatus" style="text-align:center;padding:8px;font-size:.82rem;color:#4a5568"></div>
     </div>
   </div>
 
@@ -946,7 +944,7 @@ async function scanLoopNative(){
         }
       }
     }
-  }catch(e){console.warn('Scan error:',e);}
+  }catch(e){}
   requestAnimationFrame(scanLoopNative);
 }
 
@@ -961,7 +959,7 @@ function scanLoop(){
   ctx.drawImage(v,0,0,cv.width,cv.height);
   if(window.jsQR){
     const img=ctx.getImageData(0,0,cv.width,cv.height);
-    let code=jsQR(img.data,img.width,img.height,{inversionAttempts:'attemptBoth'});
+    const code=jsQR(img.data,img.width,img.height,{inversionAttempts:'attemptBoth'});
     if(code&&code.data.startsWith('CC:')){
       const p=code.data.split(':');
       const num=parseInt(p[1]);const orient=p[2];
