@@ -8,6 +8,8 @@
 <!-- Firebase SDK -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-app-compat.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-database-compat.min.js"></script>
+<!-- QR Code generator -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -135,9 +137,16 @@ input:focus,select:focus,textarea:focus{border-color:#4299e1}
 .proj-stu.answered{background:rgba(72,187,120,.25)}
 
 /* CARDS */
-.cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:12px;margin-top:12px}
-.p-card{background:white;border-radius:6px;padding:7px;text-align:center;border:1px solid #e2e8f0}
-.p-card-num{font-size:.74rem;font-weight:700;color:#4a5568;margin-bottom:3px}
+.cards-grid{display:grid;grid-template-columns:1fr;gap:0}
+.p-card{background:white;width:210mm;height:297mm;margin:0 auto;position:relative;display:flex;align-items:center;justify-content:center;page-break-after:always;border:none}
+.p-card-inner{width:100%;height:100%;position:relative}
+@media screen{
+  .cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-top:12px}
+  .p-card{width:300px;height:420px;border:2px solid #2d3748;border-radius:8px;overflow:hidden}
+}
+@media print{
+  .p-card{width:210mm;height:297mm;border:none;page-break-after:always}
+}
 .sess-item{border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:10px}
 
 /* SETTINGS */
@@ -323,8 +332,8 @@ code{background:#edf2f7;padding:2px 6px;border-radius:4px;font-size:.8rem;font-f
 <!-- TARJETAS -->
 <section id="sec-cards">
   <div class="card no-print">
-    <h2>🖨️ Tarjetas estilo Plickers</h2>
-    <p style="font-size:.8rem;color:#718096;margin-bottom:10px">Patrón único B/N. <strong>A B C D</strong> en los 4 lados. Orienta con la respuesta <strong>arriba</strong>.</p>
+    <h2>🖨️ Tarjetas para alumnos</h2>
+    <p style="font-size:.8rem;color:#718096;margin-bottom:10px">Una tarjeta por alumno con QR en los 4 lados (A B C D). El alumno gira la hoja con su respuesta <strong>arriba</strong> y el profesor escanea ese QR.</p>
     <div class="row center">
       <div><label>Nº tarjetas</label><input type="number" id="cardCount" value="30" min="1" max="50" style="width:78px"></div>
       <div style="padding-top:17px" class="row">
@@ -333,7 +342,7 @@ code{background:#edf2f7;padding:2px 6px;border-radius:4px;font-size:.8rem;font-f
       </div>
     </div>
   </div>
-  <div class="cards-grid" id="cardsGrid"></div>
+  <div id="cardsGrid"></div>
 </section>
 
 <!-- AJUSTES -->
@@ -915,7 +924,9 @@ function scanLoop(){
   ctx.drawImage(v,0,0,cv.width,cv.height);
   if(window.jsQR){
     const img=ctx.getImageData(0,0,cv.width,cv.height);
-    const code=jsQR(img.data,img.width,img.height,{inversionAttempts:'dontInvert'});
+    // Try all inversion modes for better detection
+    let code=jsQR(img.data,img.width,img.height,{inversionAttempts:'attemptBoth'});
+    if(!code) code=jsQR(img.data,img.width,img.height,{inversionAttempts:'invertFirst'});
     if(code&&code.data.startsWith('CC:')){
       const p=code.data.split(':');
       const num=parseInt(p[1]);const orient=p[2];
@@ -925,7 +936,6 @@ function scanLoop(){
         manualAns(num-1,orient);
         document.getElementById('camStatus').textContent=`✅ #${num} ${clsObj.students[num-1]} → ${orient}`;
       }
-      // Draw green overlay
       const loc=code.location;
       ctx.strokeStyle='#68d391';ctx.lineWidth=4;ctx.beginPath();
       ctx.moveTo(loc.topLeftCorner.x,loc.topLeftCorner.y);
@@ -934,13 +944,36 @@ function scanLoop(){
       ctx.lineTo(loc.bottomLeftCorner.x,loc.bottomLeftCorner.y);
       ctx.closePath();ctx.stroke();
       ctx.fillStyle='#68d391';ctx.font=`bold ${Math.max(16,cv.width/30)}px sans-serif`;
-      ctx.fillText(`#${num} → ${orient}`,loc.topLeftCorner.x+4,loc.topLeftCorner.y-6);
+      ctx.fillText(`#${num}→${orient}`,loc.topLeftCorner.x+4,loc.topLeftCorner.y-6);
+    } else {
+      // Show scanning indicator
+      const t=Date.now()%1000<500;
+      ctx.strokeStyle=t?'#68d391':'#4299e1';ctx.lineWidth=3;
+      const cx=cv.width/2,cy=cv.height/2,sz=120;
+      ctx.strokeRect(cx-sz,cy-sz,sz*2,sz*2);
     }
   }
   requestAnimationFrame(scanLoop);
 }
-// Load jsQR
-(()=>{const sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js';document.head.appendChild(sc);})();
+// Load jsQR with multiple fallbacks
+function loadJsQR(cb){
+  const urls=[
+    'https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js',
+    'https://unpkg.com/jsqr@1.4.0/dist/jsQR.js',
+    'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js'
+  ];
+  let idx=0;
+  function tryNext(){
+    if(idx>=urls.length){console.error('jsQR no se pudo cargar');return;}
+    const sc=document.createElement('script');
+    sc.src=urls[idx++];
+    sc.onload=()=>{console.log('jsQR cargado desde',sc.src);if(cb)cb();};
+    sc.onerror=()=>{console.warn('Fallo cargando jsQR desde',sc.src);tryNext();};
+    document.head.appendChild(sc);
+  }
+  tryNext();
+}
+loadJsQR();
 
 // ============================================================
 // HISTORY
